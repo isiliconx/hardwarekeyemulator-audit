@@ -14,4 +14,6 @@ env/
 # local run artefacts.  findings.json is checked in on purpose: it is the
 # measured result the README quotes, and a report that is regenerated rather
 # than committed cannot be diffed between runs.
-*.log
+*.logscratch/
+*.pyc
+__pycache__/
