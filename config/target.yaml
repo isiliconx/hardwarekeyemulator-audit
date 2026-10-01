@@ -1,0 +1,38 @@
+# Target configuration for the hardwarekeyemulator audit.
+#
+# The target is a Python codebase, not a network service, so "scope" here means
+# source files and importable modules rather than hosts and paths.
+
+target:
+  name: hardwarekeyemulator
+  repo: https://github.com/isiliconx/hardwarekeyemulator
+  commit: 0fac0f6
+  # Local checkout.  recon/fetch.sh clones it if absent.
+  path: /home/ubuntu/.hermes/cache/scratch/hke
+  src: src/
+
+  # Modules under test, and what each is trusted to do.
+  modules:
+    rp_verify.py:         the relying party's verification.  Must reject everything it claims to.
+    ctap2_core.py:         the authenticator.  CTAP2 conformance, credential isolation, UV.
+    ctaphid.py:            framing.  Must not accept a malformed report.
+    policy_lab.py:         policy classifier.  Documentation claims only; the finding lives here.
+    analyze_attestation.py: attestation analyser.  Must not understate rejectability.
+    ctap2_server: n/a
+
+scope:
+  # Destructive: a wrong PIN decrements the real retry counter, and reset wipes
+  # the store.  Off by default.
+  allow_pin_failures: false
+  max_pin_failures: 3
+  allow_reset: false
+
+  # Files the audit reads but never writes.
+  read_only: true
+
+output:
+  findings_json: findings.json
+  report_stdout: true
+
+severity:
+  fail_on: [critical, high]

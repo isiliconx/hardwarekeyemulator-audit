@@ -1,0 +1,12 @@
+cbor2>=5.6.0
+cryptography>=42.0.0
+PyYAML>=6.0.0
+pytest>=8.0.0
+
+# Imported by the target's own test modules, not by this audit.  Without them
+# `pytest tests` aborts during collection with two ModuleNotFoundError lines and
+# reports nothing -- which reads as "the patched tree broke the suite" when the
+# suite never ran.  tests/test_lab_server_storage.py imports flask, and
+# tests/test_ctap2_interop.py imports fido2.
+flask>=3.0.0
+fido2>=1.1.0

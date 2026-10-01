@@ -1,0 +1,322 @@
+{
+  "target": "hardwarekeyemulator",
+  "commit": "0fac0f6",
+  "generated": "2026-10-01T04:38:19.720997+00:00",
+  "counts": {
+    "informational": 9,
+    "critical": 2,
+    "high": 3,
+    "medium": 4
+  },
+  "findings": [
+    {
+      "id": "UV-CAPABILITY-ADVERTISED",
+      "module": "uv_bypass",
+      "severity": "informational",
+      "title": "The device advertises user verification",
+      "detail": "GetInfo options: {'rk': True, 'up': True, 'uv': True}.  uv=True, clientPin=None, pinUvAuthToken=None.\nThere is no PIN path and no bioenrollment path, so the only way this device can set UV is by calling its injected gate.",
+      "evidence": {
+        "options": "{'rk': True, 'up': True, 'uv': True}",
+        "versions": "['FIDO_2_0']",
+        "extensions": "[]",
+        "getinfo_keys": "[1, 2, 3, 4, 5, 7, 8, 10]"
+      },
+      "remediation": "",
+      "references": [
+        "CTAP 2.1 s7.2 step 3",
+        "CTAP 2.1 s8.3 GetInfo"
+      ]
+    },
+    {
+      "id": "UV-ASSERTED-WITHOUT-VERIFICATION",
+      "module": "uv_bypass",
+      "severity": "critical",
+      "title": "The device set the UV flag with no PIN and no verification",
+      "detail": "A MakeCredential with options.uv=true completed and the authenticatorData carries UV(0x04) set.  No PIN is configured, no pinUvAuthParam was sent, and the device supports neither clientPin nor bioenrollment.\n\nCTAP 2.1 s7.2 step 3 requires CTAP2_ERR_UV_INVALID in exactly this case.  What the device does instead is call uv_gate(), which the caller supplies -- so 'user verified' means 'the embedding application returned True from a lambda'.\n\nAn RP that reads UV as a second factor has been told a second factor happened when nothing was verified.",
+      "evidence": {
+        "makeCredential_status": "0x00",
+        "flags": "{'raw': '0x45', 'UP': True, 'UV': True, 'BE': False, 'BS': False, 'AT': True}",
+        "clientPin_option": "absent",
+        "pin_configured": "False",
+        "pinUvAuthParam_sent": "False",
+        "uv_gate": "function"
+      },
+      "remediation": "Refuse uv=true unless the ceremony carried a valid pinUvAuthParam, or bioenrollment is available.  Better: stop advertising uv in GetInfo at all, since a gate the embedding application supplies is not user verification.",
+      "references": [
+        "CTAP 2.1 s7.2 step 3",
+        "WebAuthn L2 s6.1.1"
+      ]
+    },
+    {
+      "id": "UV-ASSERTED-WITHOUT-VERIFICATION-ASSERTION",
+      "module": "uv_bypass",
+      "severity": "critical",
+      "title": "The assertion path sets UV the same way",
+      "detail": "GetAssertion with options.uv=true also completed with UV(0x04) set and no PIN in the request.  The flag is not an artefact of the registration path.",
+      "evidence": {
+        "getAssertion_status": "0x00",
+        "flags": "{'raw': '0x05', 'UP': True, 'UV': True, 'BE': False, 'BS': False, 'AT': False}"
+      },
+      "remediation": "Same as above; fix the shared _uv() path.",
+      "references": [
+        "CTAP 2.1 s7.2 step 3"
+      ]
+    },
+    {
+      "id": "UV-GATE-FALSE-IS-REFUSED",
+      "module": "uv_bypass",
+      "severity": "informational",
+      "title": "A falsifying gate is refused",
+      "detail": "With uv_gate returning False the ceremony returned 0x3c (uv failed) and no credential was created.\n\nSo the flag is at least gated on the caller's boolean, and the refusal path works.  That is worth stating plainly because it is the limit of what is right here: the device correctly reports a *failed* verification, and incorrectly reports a *successful* one when the gate returns True without anything having been verified.",
+      "evidence": {
+        "status": "0x3c",
+        "credential_created": "False"
+      },
+      "remediation": "",
+      "references": [
+        "CTAP 2.1 s7.2 step 3"
+      ]
+    },
+    {
+      "id": "FIDO-AAGUID-EXTENSION-DOUBLE-WRAPPED",
+      "module": "attestation",
+      "severity": "high",
+      "title": "id-fido-gen-ce-aaguid carries a nested OCTET STRING",
+      "detail": "The leaf's extension value is 18 bytes and begins 0x0410, which is a DER OCTET STRING header.  id-fido-gen-ce-aaguid defines extnValue as OCTET STRING (SIZE (16)) -- one wrapping, 16 bytes of content.\n\nfield aaguid     00000000000000000000000000000000 (16 bytes)\nextension value 041000000000000000000000000000000000 (18 bytes)\nunwrapped       00000000000000000000000000000000 (16 bytes)\n\nA verifier doing the obvious comparison -- ext.value.value against the aaguid field -- gets a mismatch and either rejects a legitimate-looking credential or, worse, has a code path that gives up on the comparison.\n\nThe value is recoverable by unwrapping once, which is why the device's own selftest passes: it asserts the extension is present, not that it parses to the aaguid.",
+      "evidence": {
+        "oid": "1.3.6.1.4.1.45724.1.1.4",
+        "extension_value_len": "18",
+        "extension_value_hex": "041000000000000000000000000000000000",
+        "field_aaguid_len": "16",
+        "field_aaguid_hex": "00000000000000000000000000000000",
+        "matches_after_single_unwrap": "True",
+        "matches_verbatim": "False"
+      },
+      "remediation": "Pass the raw 16 bytes, not _der_octet_string(aaguid):\n    x.UnrecognizedExtension(oid, aaguid)\ncryptography wraps extnValue in the OCTET STRING itself, so the DER helper inside it produces the second layer.",
+      "references": [
+        "id-fido-gen-ce-aaguid",
+        "RFC 4043 id-ce 1.3.6.1.4.1.45724.1.1.4",
+        "WebAuthn L2 s8.2"
+      ]
+    },
+    {
+      "id": "ATTESTATION-TERMINATES-AT-LOCAL-CA",
+      "module": "attestation",
+      "severity": "informational",
+      "title": "The chain verifies and terminates at a CA the process made",
+      "detail": "leaf  CN=Batch Attestation,OU=Authenticator Attestation,O=Lab,C=US\nissuer issued by CN=Batch Certificate,OU=Authenticator Attestation,O=Lab,C=US\n\nThe signature is real and the chain is well-formed.  It proves the device holds the leaf key and nothing about hardware origin, which is exactly what a self-issued software CA can establish.  An RP pinning FIDO MDS attestation roots rejects this on the chain alone; that rejection is the only reason this is not a bypass, and it is a property of the RP rather than of the device.",
+      "evidence": {
+        "fmt": "packed",
+        "x5c_length": "2",
+        "leaf_self_issued": "False",
+        "aaguid": "00000000000000000000000000000000"
+      },
+      "remediation": "",
+      "references": [
+        "WebAuthn L2 s8.2",
+        "FIDO Metadata Service BLOB payload"
+      ]
+    },
+    {
+      "id": "ANALYSER-MISSES-MALFORMED-EXTENSION",
+      "module": "attestation",
+      "severity": "medium",
+      "title": "Their analyser reports the malformed extension as present and fine",
+      "detail": "analyze_attestation.inspect() reports leaf_has_fido_extension=True for a certificate whose extension value is 18 bytes of nested DER.  The analyser checks for the extension's *presence* and never validates that its value is a well-formed 16-byte aaguid, so it cannot tell a conformant leaf from this one.\n\nverdict: 1 signal(s) let an RP reject this in one comparison: attestation chain terminates at an untrusted self-made CA",
+      "evidence": {
+        "leaf_has_fido_extension": "True",
+        "root_is_trusted_fido_ca": "False",
+        "rejectable_signals": "1"
+      },
+      "remediation": "Parse extnValue and require exactly 16 bytes before reporting the extension as present.",
+      "references": [
+        "id-fido-gen-ce-aaguid"
+      ]
+    },
+    {
+      "id": "RP-REFUSES-FORGED-ATTESTATION",
+      "module": "rp_verifier",
+      "severity": "informational",
+      "title": "A forged attestation signature is refused",
+      "detail": "Refused: attestation signature does not verify against the attestation certificate key.  The verifier loads x5c[0] and verifies against the leaf key, which is the rule WebAuthn L2 s8.2 states and the one implementations most often get wrong by verifying against the credential key.",
+      "evidence": {
+        "clean_registration_accepted": "True",
+        "forged_refused": "True",
+        "reason": "attestation signature does not verify against the attestation certificate key",
+        "signature_length_original": "72",
+        "signature_length_forged": "71"
+      },
+      "remediation": "",
+      "references": [
+        "WebAuthn L2 s8.2"
+      ]
+    },
+    {
+      "id": "RP-ATTESTATION-VERIFIED-FLAG-FOLLOWS-POLICY",
+      "module": "rp_verifier",
+      "severity": "medium",
+      "title": "attestation_verified reflects the policy setting, not the verification",
+      "detail": "verify_registration returns attestation_verified=False while the policy had require_attestation=False.  The field is computed as `fmt != 'none' and policy['require_attestation']` -- so with the gate off it reads False on a certificate whose signature was verified a few lines earlier, and it would read True for any fmt other than none if a policy value were misconfigured.\n\nThe field is the sort of thing an audit log or an assurance-level decision reads.  It should reflect what the function just proved.",
+      "evidence": {
+        "attestation_verified": "False",
+        "policy_require_attestation": "False",
+        "fmt": "packed",
+        "signature_actually_verified": "True"
+      },
+      "remediation": "Return attestation_verified=True only when the statement signature verified in this call.",
+      "references": [
+        "WebAuthn L2 s8.2"
+      ]
+    },
+    {
+      "id": "RP-IDENTICAL-REPLAY-ACCEPTED",
+      "module": "rp_verifier",
+      "severity": "medium",
+      "title": "A verbatim assertion replay is accepted",
+      "detail": "  identical replay   ACCEPTED\n  fresh challenge    refused: assertion signature failed verification: \n  cross origin       refused: assertion signature failed verification: \n\nThe in-band replays are refused because the signature covers authData || clientDataHash: substituting the clientDataJSON changes the signed message.  A verbatim replay carries no such change, so nothing in the assertion distinguishes it.\n\nThat is not a verifier bug -- it is what a stateless signature check is.  It becomes a login-reuse bug the moment an RP stores no state, and their verifier keeps none: no spent-challenge cache, and the counter check accepts an equal value.  A verifier built on this needs a challenge cache or strictly advancing per-credential counters on the RP side.",
+      "evidence": {
+        "results": "{'identical replay': 'ACCEPTED', 'fresh challenge': 'refused: assertion signature failed verification: ', 'cross origin': 'refused: assertion signature failed verification: '}",
+        "captured_counter": "1",
+        "stored_counter": "0",
+        "challenge_cache": "False"
+      },
+      "remediation": "Store spent challenges, or require the counter to strictly advance per credential.",
+      "references": [
+        "WebAuthn L2 s7.2"
+      ]
+    },
+    {
+      "id": "POLICY-THREE-OF-FOUR-SHAPES-ACCEPT-FORGED-SIG",
+      "module": "policy_shapes",
+      "severity": "high",
+      "title": "A non-verifying attestation is still called a hardware key by three of four shapes",
+      "detail": "Same credential, same browser, same flags; only the signature validity differs.\n\n  A_NO_GATE          sig_ok=True  -> HARDWARE\n  B_SYNCABILITY      sig_ok=True  -> HARDWARE\n  C_ATTEST_PRESENT   sig_ok=True  -> HARDWARE\n  D_MDS_TRUSTED      sig_ok=True  -> passkey \n  A_NO_GATE          sig_ok=False -> HARDWARE\n  B_SYNCABILITY      sig_ok=False -> HARDWARE\n  C_ATTEST_PRESENT   sig_ok=False -> HARDWARE\n  D_MDS_TRUSTED      sig_ok=False -> passkey \n\nWith sig_ok=False, 3 shape(s) still report a hardware key: A_NO_GATE, B_SYNCABILITY, C_ATTEST_PRESENT.  Only D_MDS_TRUSTED rejects it.\n\nShape C is the important one: it checks that an attStmt is present and never inspects the signature, which is what attestation: 'direct' becomes in a verifier written that way.  Requesting attestation and then only checking that a statement arrived makes the request decorative.",
+      "evidence": {
+        "flags": "0x45",
+        "fmt": "packed",
+        "aaguid": "00000000000000000000000000000000",
+        "accepted_with_forged_sig": "['A_NO_GATE', 'B_SYNCABILITY', 'C_ATTEST_PRESENT']",
+        "rejected_with_forged_sig": "['D_MDS_TRUSTED']",
+        "C_reason": "attestation present=True, signature NOT inspected. An RP written this way treats 'direct' as decorative.",
+        "D_reason": "sig_ok=False aaguid_in_mds=False issuer_trusted=False"
+      },
+      "remediation": "Treat 'attestation present' and 'attestation verified' as different requirements.  If an RP wants direct attestation it must verify the statement signature, and if it wants vendor identity it must pin an MDS root.  Presence alone is not evidence.",
+      "references": [
+        "WebAuthn L2 s8.2 attestation statement verification",
+        "WebAuthn L3 s10 attestation conveyance policies"
+      ]
+    },
+    {
+      "id": "POLICY-CHAIN-ONLY-GATE-IS-AVAILABLE",
+      "module": "policy_shapes",
+      "severity": "informational",
+      "title": "A signature-verification gate catches this without the MDS",
+      "detail": "D is the strongest shape, but it needs the FIDO MDS, which is a network dependency and a signing-root problem.  The cheapest gate that actually works is one ECDSA verification under the leaf key: it catches tampering and forged signatures, which is everything shapes A and C miss.\n\nOn this certificate that check is satisfied, confirming it is computable from material already in the response.  It still proves nothing about hardware origin -- that is what the MDS is for -- so the two are complementary, not alternatives.",
+      "evidence": {
+        "signature_verifies_under_leaf": "True",
+        "x5c_present": "True"
+      },
+      "remediation": "",
+      "references": [
+        "WebAuthn L2 s8.2"
+      ]
+    },
+    {
+      "id": "POLICY-SYNCABILITY-IS-CLIENT-CONTROLLED",
+      "module": "policy_shapes",
+      "severity": "informational",
+      "title": "Shape B reads a flag the authenticator chooses",
+      "detail": "BE(0x08) is clear, so shape B calls this a hardware key.  The flag is written by the authenticator and carried in authenticatorData inside the signature, so it is authentic -- but nothing binds it to the device's nature.  A software authenticator that emits BE=clear is indistinguishable from a security key at this layer, which is exactly why shape B is the one most sites ship and the one that proves least.\n\nThis is a Chromium sorting behaviour being mistaken for an authenticity signal.",
+      "evidence": {
+        "BE_flag": "False",
+        "BS_flag": "False",
+        "shape_B_verdict": "BE(0x08)=clear -> security key; BS(0x10)=clear"
+      },
+      "remediation": "",
+      "references": [
+        "WebAuthn L2 s6.1.1 authenticator data flags"
+      ]
+    },
+    {
+      "id": "GETINFO-MISSING-CTAP21-KEYS",
+      "module": "device_conformance",
+      "severity": "medium",
+      "title": "GetInfo omits keys a CTAP 2.1 client expects",
+      "detail": "keys present: ['0x1', '0x2', '0x3', '0x4', '0x5', '0x7', '0x8', '0xa'].  Missing: 0x06 pinUvAuthProtocols (required in 2.1).\n\nA client that reads key 6 to learn which PIN/UV auth protocols are supported gets a KeyError or a silent default rather than an answer, and one that reads key 0x0A for the algorithm list has nothing to validate an offered algorithm against.\n\nThe device declares FIDO_2_0, so the omissions are defensible under 2.0 -- except that it also reports uv, which only exists in 2.1.",
+      "evidence": {
+        "keys_present": "[1, 2, 3, 4, 5, 7, 8, 10]",
+        "versions": "['FIDO_2_0']",
+        "missing": "['0x06 pinUvAuthProtocols (required in 2.1)']"
+      },
+      "remediation": "Emit the CTAP 2.1 keys, or declare only FIDO_2_0 and drop uv.",
+      "references": [
+        "CTAP 2.1 s8.3",
+        "FIDO 2.1 s8.3 GetInfo response"
+      ]
+    },
+    {
+      "id": "GETINFO-UV-WITHOUT-A-UV-MECHANISM",
+      "module": "device_conformance",
+      "severity": "high",
+      "title": "uv is advertised while no PIN or bioenrollment option is reported",
+      "detail": "options: {'rk': True, 'up': True, 'uv': True}.  uv=True is present; clientPin is None and pinUvAuthToken is None.\n\nCTAP 2.1 s8.3: the uv option indicates whether the authenticator supports some form of built-in user verification.  With neither clientPin nor pinUvAuthToken nor bioenrollment reported, there is no mechanism a client can use to obtain a verified assertion -- so advertising uv invites exactly the request the device then answers without verifying anything.  See UV-ASSERTED-WITHOUT-VERIFICATION.",
+      "evidence": {
+        "options": "{'rk': True, 'up': True, 'uv': True}",
+        "clientPin": "None",
+        "pinUvAuthToken": "None",
+        "uv": "True"
+      },
+      "remediation": "",
+      "references": [
+        "CTAP 2.1 s8.3",
+        "CTAP 2.1 s7.2"
+      ]
+    },
+    {
+      "id": "DEVICE-CREDENTIAL-ISOLATION",
+      "module": "device_conformance",
+      "severity": "informational",
+      "title": "Credentials are isolated per RP ID",
+      "detail": "  assert at site-b with site-a's credId: 0x2e\n  assert at site-b with no allowList: 0x2e\n\nBoth refused.  A credential registered at site-a.example does not satisfy an assertion at site-b.example, whether named by credential ID or discovered with an empty allowList.  This is the property that makes rpIdHash in authData meaningful rather than decorative.",
+      "evidence": {
+        "probes": "[(\"assert at site-b with site-a's credId\", 46), ('assert at site-b with no allowList', 46)]"
+      },
+      "remediation": "",
+      "references": [
+        "CTAP 2.1 s7.2.2",
+        "WebAuthn L2 s7.2"
+      ]
+    },
+    {
+      "id": "DEVICE-SIGN-COUNTER",
+      "module": "device_conformance",
+      "severity": "informational",
+      "title": "The signature counter advances",
+      "detail": "registration 0, then [1, 2, 3, 4, 5].  Strictly increasing across every assertion, which is what lets an RP detect a cloned authenticator.  A frozen counter is the cheapest tripwire for a device that reuses signatures.",
+      "evidence": {
+        "at_registration": "0",
+        "assertions": "[1, 2, 3, 4, 5]",
+        "strictly_increasing": "True"
+      },
+      "remediation": "",
+      "references": [
+        "WebAuthn L2 s6.1.1 signCount"
+      ]
+    },
+    {
+      "id": "DEVICE-EXCLUDE-LIST",
+      "module": "device_conformance",
+      "severity": "informational",
+      "title": "The exclude list blocks re-registration",
+      "detail": "Registering with the existing credential in excludeList returned 0x7f.  Refused, which is what stop a second credential from silently coexisting with the first for the same account.",
+      "evidence": {
+        "status": "0x7f",
+        "respected": "True"
+      },
+      "remediation": "",
+      "references": [
+        "CTAP 2.1 s7.1"
+      ]
+    }
+  ]
+}
