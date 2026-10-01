@@ -58,6 +58,34 @@ python3 browser/drive.py --site https://your.site
 
 Drop `--run` from `hold.py` to leave the key attached and idle instead.
 
+## If it says "insert and touch" or "add a hardware security key"
+
+That is Chrome's WebAuthn permission prompt, not a real device asking for a
+finger. A virtual authenticator has no touch sensor to press, so the prompt
+waits forever.
+
+The cause was a duplicated flag:
+
+```
+--disable-features=WebAuthnVirtualAuthenticatorPrompt
+--disable-features=DBus
+```
+
+Chrome honours only the **last** `--disable-features`, so the suppression was
+silently discarded and every ceremony blocked on the prompt. The launcher now
+passes one comma-separated list:
+
+```
+--disable-features=WebAuthnVirtualAuthenticatorPrompt,DBus,...
+```
+
+If you see that prompt, check the running command line — a stray second
+`--disable-features` will undo it:
+
+```bash
+pgrep -af '/opt/google/chrome/chrome ' | head -1 | tr ' ' '\n' | grep disable-features
+```
+
 ## If the window flashes and disappears
 
 A copied profile is not trusted by Chrome, so the first-run flow comes back. It

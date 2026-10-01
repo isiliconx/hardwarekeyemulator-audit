@@ -134,8 +134,13 @@ def launch(url=None):
         "--use-gl=angle", "--use-angle=swiftshader-webgl",
         "--ignore-certificate-errors",
         f"--unsafely-treat-insecure-origin-as-secure={ORIGIN}",
-        "--disable-features=WebAuthnVirtualAuthenticatorPrompt",
-        "--disable-dev-shm-usage", "--disable-features=DBus",
+        # ONE --disable-features, comma separated.  Chrome takes the LAST
+        # occurrence only, so a second --disable-features=DBus silently threw
+        # away the prompt suppression and Chrome sat on "Add a hardware security
+        # key" waiting for a touch that a virtual device cannot register.
+        "--disable-features=WebAuthnVirtualAuthenticatorPrompt,DBus,"
+        "DestroyProfileOnBrowserClose,MediaRouter,OptimizationHints",
+        "--disable-dev-shm-usage",
         "--window-size=1600,1000", "--window-position=20,20",
         page,
     ]
