@@ -56,9 +56,45 @@ def kill_chrome():
     time.sleep(4)
 
 
+RESYNC = False
+
+
+def clear_singletons():
+    for n in ("SingletonLock", "SingletonCookie", "SingletonSocket"):
+        p = os.path.join(WORK, n)
+        if os.path.islink(p) or os.path.exists(p):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+
+
+def _dirsize(path):
+    total = 0
+    for root, _, files in os.walk(path):
+        for f in files:
+            try:
+                total += os.path.getsize(os.path.join(root, f))
+            except OSError:
+                pass
+    return f"{total // (1024 * 1024)}MB"
+
+
 def sync_profile():
-    """Copy your profile, excluding caches and any live singleton."""
+    """Seed the work profile from yours, ONCE.
+
+    It used to rmtree and re-copy on every launch, which threw away cookies,
+    logins and every credential registered against the key.  Now the copy is
+    created only if it is missing, so the browser keeps its state across runs.
+    Pass --resync to start over deliberately.
+    """
+    if os.path.isdir(WORK) and not RESYNC:
+        print(f"  reusing existing work profile ({_dirsize(WORK)}), "
+              f"logins and credentials preserved")
+        clear_singletons()
+        return
     if os.path.isdir(WORK):
+        print(f"  --resync: discarding {WORK}")
         shutil.rmtree(WORK, ignore_errors=True)
     shutil.copytree(REAL, WORK, symlinks=True,
                     ignore=shutil.ignore_patterns(
@@ -66,10 +102,7 @@ def sync_profile():
                         "Code Cache", "GPUCache", "GrShaderCache",
                         "ShaderCache", "GraphiteDawnCache", "DawnCache",
                         "Service Worker/CacheStorage"))
-    for n in ("SingletonLock", "SingletonCookie", "SingletonSocket"):
-        p = os.path.join(WORK, n)
-        if os.path.islink(p) or os.path.exists(p):
-            os.unlink(p)
+    clear_singletons()
     suppress_first_run()
 
 
@@ -255,7 +288,21 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--url", default=ORIGIN + "/",
                     help="page to open; defaults to the lab RP")
+    ap.add_argument("--resync", action="store_true",
+                    help="rebuild the work profile from yours (loses logins)")
     a = ap.parse_args()
+    globals()["RESYNC"] = a.resync
+
+    # Reuse a live browser: killing it releases the key and drops every tab.
+    if port_open(PORT):
+        info = json.load(urllib.request.urlopen(
+            f"http://127.0.0.1:{PORT}/json/version", timeout=5))
+        print(f"Chrome already up: {info.get('Browser')}")
+        print(f"  DevTools on {PORT}, work profile {WORK}")
+        print("  not restarting it -- your tabs, logins and key stay put")
+        print()
+        print(f"  attach and register:  python3 browser/hold.py --run {a.url}")
+        raise SystemExit(0)
     kill_chrome()
     print("syncing your profile ->", WORK)
     sync_profile()
