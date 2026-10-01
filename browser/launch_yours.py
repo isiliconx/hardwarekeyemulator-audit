@@ -70,6 +70,40 @@ def sync_profile():
         p = os.path.join(WORK, n)
         if os.path.islink(p) or os.path.exists(p):
             os.unlink(p)
+    suppress_first_run()
+
+
+def suppress_first_run():
+    """A copied profile is not trusted by Chrome, so the first-run flow comes
+    back: a "Welcome to Google Chrome" dialog opens and no page target is ever
+    created, which leaves the window blank and the launcher exiting as if it had
+    worked.  Measured on this host -- devtools listed zero page targets.
+
+    Marking the flow done in the copy removes it.  This writes only to WORK.
+    """
+    import plistlib
+    seen = os.path.join(WORK, "First Run")
+    if not os.path.isdir(seen):
+        os.makedirs(seen, exist_ok=True)
+    # Chrome keys first-run state off both of these.
+    for rel in ("First Run", "First Run Sentinel"):
+        d = os.path.join(WORK, rel)
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "sentinel"), "wb") as f:
+            f.write(b"\x00" * 8)
+    try:
+        with open(os.path.join(seen, "Preferences"), "rb") as f:
+            prefs = plistlib.load(f)
+    except Exception:
+        prefs = {}
+    prefs.setdefault("browser", {})
+    prefs["browser"]["window_placement"] = {
+        "bottom": 1029, "left": 20, "maximized": False,
+        "right": 1620, "top": 29, "work_area_bottom": 1199,
+        "work_area_left": 0, "work_area_right": 1920, "work_area_top": 29,
+        "window_state": "normal"}
+    with open(os.path.join(seen, "Preferences"), "wb") as f:
+        plistlib.dump(prefs, f)
 
 
 def ensure_lab():
@@ -107,17 +141,91 @@ def launch(url=None):
     ]
     env = dict(os.environ)
     env["DISPLAY"] = ":1"
-    subprocess.Popen(args, stdout=subprocess.DEVNULL,
-                     stderr=subprocess.DEVNULL, start_new_session=True, env=env)
+    log = open("/tmp/chrome-work.log", "ab", buffering=0)
+    log.write(b"\n=== launch " + page.encode() + b" ===\n")
+    # Chrome must be fully detached from this process.  When the launcher exits,
+    # anything still in its process group gets torn down -- which is what made
+    # the window vanish immediately for the user.  setsid via start_new_session
+    # handles the group, and closing our inherited stdio stops the reaper.
+    proc = subprocess.Popen(
+        args, stdout=log, stderr=log, stdin=subprocess.DEVNULL,
+        start_new_session=True, close_fds=True, env=env)
+    proc = None
     for _ in range(50):
         time.sleep(1)
         try:
             with urllib.request.urlopen(
                     f"http://127.0.0.1:{PORT}/json/version", timeout=3) as r:
-                return json.load(r)
+                info = json.load(r)
+            return proc, info
         except Exception:
             pass
-    return None
+    return proc, None
+
+
+def tail_log(n=25):
+    try:
+        with open("/tmp/chrome-work.log", "r", errors="replace") as f:
+            lines = [x for x in f.read().splitlines() if x.strip()]
+        for line in lines[-n:]:
+            print("    " + line[:150])
+    except OSError:
+        print("    (no log)")
+
+
+def size_window():
+    """A copied profile carries a saved window placement, which overrides
+    --window-size and leaves a 10x10 stub at (10,10).  Force the real geometry.
+
+    Uses the browser-level endpoint, so no new tab is opened and the page the
+    launcher asked for stays exactly where it is.  An earlier version opened a
+    tab via /json/new to get a target and then closed it, which took the last
+    page with it and left the window blank.
+    """
+    import asyncio
+
+    async def go():
+        import websockets
+        with urllib.request.urlopen(
+                f"http://127.0.0.1:{PORT}/json/version", timeout=5) as r:
+            ws_url = json.load(r)["webSocketDebuggerUrl"]
+        async with websockets.connect(ws_url, max_size=8 * 1024 * 1024) as ws:
+            tid = None
+            for t in json.load(urllib.request.urlopen(
+                    f"http://127.0.0.1:{PORT}/json", timeout=5)):
+                if t.get("type") == "page" and t.get("webSocketDebuggerUrl"):
+                    tid = t["id"]
+                    break
+            if tid is None:
+                raise OSError("no page target to size")
+            await ws.send(json.dumps({
+                "id": 1, "method": "Browser.getWindowForTarget",
+                "params": {"targetId": tid}}))
+            win = None
+            for _ in range(30):
+                m = json.loads(await ws.recv())
+                if m.get("id") == 1:
+                    win = (m.get("result") or {}).get("windowId")
+                    break
+            if win is None:
+                raise OSError("no window id")
+            await ws.send(json.dumps({
+                "id": 2, "method": "Browser.setWindowBounds",
+                "params": {"windowId": win, "bounds": {
+                    "left": 20, "top": 20,
+                    "width": 1600, "height": 1000}}}))
+            for _ in range(30):
+                m = json.loads(await ws.recv())
+                if m.get("id") == 2:
+                    if "error" in m:
+                        raise OSError(str(m["error"]))
+                    break
+        print(f"  window: 1600x1000 at (20,20)  [windowId={win}]")
+
+    try:
+        asyncio.run(go())
+    except Exception as e:
+        print(f"  (window geometry unchanged: {type(e).__name__} {e})")
 
 
 def attach_key():
@@ -148,11 +256,16 @@ if __name__ == "__main__":
     sync_profile()
     print("  ok")
     print("lab RP:", "up" if ensure_lab() else "DOWN")
-    info = launch(a.url)
+    proc, info = launch(a.url)
     if not info:
-        print("FAILED: DevTools still did not bind")
+        print("FAILED: DevTools did not bind.")
+        print(f"  chrome pid {proc.pid if proc else '?'} alive="
+              f"{proc.poll() is None if proc else 'unknown'}")
+        print("  chrome log: /tmp/chrome-work.log")
+        tail_log()
         raise SystemExit(1)
     print("Chrome:", info.get("Browser"), "on DISPLAY :1")
+    size_window()
     print("  profile:", WORK, "(a copy -- your real one is untouched)")
     for t in json.load(urllib.request.urlopen(
             f"http://127.0.0.1:{PORT}/json", timeout=5)):

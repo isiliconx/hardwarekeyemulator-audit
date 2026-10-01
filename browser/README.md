@@ -37,6 +37,22 @@ python3 browser/drive.py --site https://your.site
 `drive.py` re-attaches the key on its own DevTools session before measuring, so
 it works standalone. It runs a fresh ceremony and prints the flags.
 
+## If the window flashes and disappears
+
+A copied profile is not trusted by Chrome, so the first-run flow comes back. It
+opens a "Welcome to Google Chrome" dialog, creates no page target, and the
+launcher exits as if it had succeeded — the window you see for a moment is that
+dialog. The launcher marks first run complete in the copy and forces the window
+geometry, so this should not happen. If it does:
+
+```bash
+grep -i welcome /tmp/chrome-work.log     # chrome's own output
+ls /tmp/chrome-work.log                  # always written, was /dev/null before
+```
+
+Both go through `browser/start.sh`, which prints whether it managed to size the
+window.
+
 ## Why a copy of your profile
 
 `~/.config/google-chrome` is the one path on this host where Chrome will not
