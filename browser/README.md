@@ -13,6 +13,19 @@ transports  ['usb']
 VERDICT  security key -- not backup eligible, not syncable
 ```
 
+## Do not navigate the window by hand
+
+A CDP virtual authenticator is visible only inside the DevTools session that
+created it. Measured on this host, two independent sessions on one browser:
+
+| session | key attached | ceremony |
+|---|---|---|
+| A | yes | succeeds, flags `0x45` |
+| B | no | `NotAllowedError` |
+
+Any tab you open by typing a URL is session B, so it sees no security key and
+registration fails. Use one of the two routes below instead.
+
 ## Do this
 
 ```bash
@@ -25,17 +38,25 @@ A Chrome window opens on `DISPLAY=:1` showing the FIDO2 Lab RP.
 To test your own site, give the launcher the URL:
 
 ```bash
+# 1. bring up the window
 ./browser/start.sh https://your.site
+
+# 2. attach the key and run the ceremony -- watch the window do it
+python3 browser/hold.py --run https://your.site
 ```
 
-Then register from the page, and confirm what got registered:
+Step 2 opens your site with the key attached and runs
+`navigator.credentials.create()` in that window, then prints the flags. Add
+`https://your.site` as your site's real login URL — it registers against the RP
+ID your page sends, so the RP on that page must be configured to accept it.
+
+The same measurement without the window:
 
 ```bash
 python3 browser/drive.py --site https://your.site
 ```
 
-`drive.py` re-attaches the key on its own DevTools session before measuring, so
-it works standalone. It runs a fresh ceremony and prints the flags.
+Drop `--run` from `hold.py` to leave the key attached and idle instead.
 
 ## If the window flashes and disappears
 
