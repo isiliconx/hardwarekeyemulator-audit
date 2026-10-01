@@ -35,6 +35,68 @@ os.environ.setdefault(
 from tooling.paths import BASELINE_SRC  # noqa: E402
 
 sys.path.insert(0, BASELINE_SRC)
+def _step(msg):
+    """Print and flush.  os.execv discards buffered output, so progress written
+    before a re-exec would vanish."""
+    print(msg, flush=True)
+
+
+_SELF = os.path.abspath(__file__)
+
+
+def _ensure_deps():
+    """Re-exec under an interpreter that has the upstream dependencies.
+
+    chrome_bridge needs cbor2 and flask.  Whatever python3 is first on PATH may
+    not have them, and this project may have no venv of its own.  Candidates are
+    tried in order: the project venv, any Hermes scratch venv, then the system
+    python.  Doing it here means a hand-run needs no environment setup at all.
+    """
+    try:
+        import cbor2  # noqa: F401
+        return
+    except ImportError:
+        pass
+
+    import glob
+    import subprocess as _sp
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    cands = [os.path.join(root, ".venv", "bin", "python3")]
+    cands += sorted(glob.glob(os.path.join(
+        os.path.expanduser("~"), ".hermes", "cache", "scratch",
+        "*", "bin", "python3")))
+    cands += ["/usr/bin/python3"]
+    # Do NOT compare realpath: every venv here symlinks to the same base
+    # interpreter, so the guard would skip every candidate and declare the
+    # dependency missing when it is present.  Compare the path as written, and
+    # guard the loop with a hop counter instead so a re-exec cannot loop.
+    if os.environ.get("_HKE_DEPS_HOPS"):
+        sys.exit("missing dependency: cbor2 (needed by chrome_bridge)\n"
+                 "  this interpreter lacks it after one re-exec attempt\n"
+                 "  fix:  pip install -r requirements.txt")
+    for cand in cands:
+        if not os.path.exists(cand) or cand == sys.executable:
+            continue
+        try:
+            r = _sp.run([cand, "-c", "import cbor2, flask"],
+                        capture_output=True, timeout=30)
+        except Exception:
+            continue
+        if r.returncode == 0:
+            # execv replaces the process image and discards unflushed stdout,
+            # so everything printed before this point would be lost.
+            print(f"[deps] using {cand}")
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os.environ["_HKE_DEPS_HOPS"] = "1"
+            os.execv(cand, [cand, _SELF] + sys.argv[1:])
+    sys.exit(
+        "missing dependency: cbor2 (needed by the target's chrome_bridge)\n"
+        "  no interpreter found with cbor2 + flask\n"
+        "  fix:  pip install -r requirements.txt   (or: ./build.sh deps)")
+
+
+_ensure_deps()
 import chrome_bridge  # noqa: E402
 
 PORT = 9222
