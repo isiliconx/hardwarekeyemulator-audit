@@ -8,9 +8,12 @@ Run:  python3 tests/test_modules.py
 import contextlib
 import importlib
 import io
+import os
 import sys
 
-sys.path.insert(0, "/home/ubuntu/.hermes/web/hardwarekeyemulator-audit")
+# Self-locating: this file runs from anywhere, including a cold clone.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
 
 MODULES = [
     "vuln.uv_bypass",

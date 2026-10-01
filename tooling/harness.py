@@ -21,9 +21,10 @@ import tempfile
 import threading
 from dataclasses import dataclass, field
 
-TARGET_SRC = os.environ.get(
-    "HKE_SRC", "/home/ubuntu/.hermes/cache/scratch/hke/src"
-)
+# The target tree comes from tooling.paths, which derives it from HKE_WORK.  An
+# explicit HKE_SRC still wins, so one sweep can be pointed at a different tree.
+from tooling.paths import BASELINE_SRC as TARGET_SRC  # noqa: E402
+
 if TARGET_SRC not in sys.path:
     sys.path.insert(0, TARGET_SRC)
 

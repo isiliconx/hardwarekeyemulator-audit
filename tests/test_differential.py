@@ -31,6 +31,11 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Self-locating: this file is run by path, so nothing puts the project on the
+# path for us.  Without this, `from tooling.paths import ...` below fails on a
+# cold clone.
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
 
 PASS, FAIL = 0, 0
 
@@ -117,10 +122,11 @@ CLAIMS = [
 
 
 def main() -> int:
-    baseline_src = os.environ.get(
-        "HKE_BASELINE_SRC", "/home/ubuntu/.hermes/cache/scratch/hke/src")
-    patched_src = os.environ.get(
-        "HKE_PATCHED_SRC", "/home/ubuntu/.hermes/cache/scratch/hke-fixed/src")
+    from tooling.paths import BASELINE_SRC as default_baseline
+    from tooling.paths import PATCHED_SRC as default_patched
+
+    baseline_src = os.environ.get("HKE_BASELINE_SRC") or default_baseline
+    patched_src = os.environ.get("HKE_PATCHED_SRC") or default_patched
 
     print("=" * 72)
     print("baseline", baseline_src)

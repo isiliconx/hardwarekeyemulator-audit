@@ -14,9 +14,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TARGET="${HKE_TARGET:-/home/ubuntu/.hermes/cache/scratch/hke}"
-PATCHED="${HKE_PATCHED:-/home/ubuntu/.hermes/cache/scratch/hke-fixed}"
-PY="${ROOT}/.venv/bin/python"
+# shellcheck source=recon/paths.sh
+. "${ROOT}/recon/paths.sh"
 
 [ -x "$PY" ] || PY="$(command -v python3)"
 

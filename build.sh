@@ -13,9 +13,9 @@ PY="${VENV}/bin/python"
 export PYTHON="${PY}"
 
 # Where the upstream checkout lives (pristine) and where the patched copy goes.
-TARGET="${HKE_TARGET:-/home/ubuntu/.hermes/cache/scratch/hke}"
-TARGET_SRC="${TARGET}/src"
-PATCHED="${HKE_PATCHED:-/home/ubuntu/.hermes/cache/scratch/hke-fixed}"
+# See recon/paths.sh -- defaults to a sibling of this project.
+# shellcheck source=recon/paths.sh
+. "${ROOT}/recon/paths.sh"
 
 find_python() {
   for c in python3.12 python3.13 python3.11 python3; do

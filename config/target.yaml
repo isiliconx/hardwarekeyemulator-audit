@@ -7,8 +7,10 @@ target:
   name: hardwarekeyemulator
   repo: https://github.com/isiliconx/hardwarekeyemulator
   commit: 0fac0f6
-  # Local checkout.  recon/fetch.sh clones it if absent.
-  path: /home/ubuntu/.hermes/cache/scratch/hke
+  # Local checkout.  recon/fetch.sh clones it if absent.  The path is derived
+  # from HKE_WORK (default: a sibling of this project), so there is nothing to
+  # edit here on a new machine.  See recon/paths.sh.
+  path: ${HKE_TARGET:-<HKE_WORK>/hke}
   src: src/
 
   # Modules under test, and what each is trusted to do.

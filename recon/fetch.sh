@@ -3,7 +3,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SRC="${HKE_PATH:-/home/ubuntu/.hermes/cache/scratch/hke}"
+# shellcheck source=recon/paths.sh
+. "${ROOT}/recon/paths.sh"
+SRC="${TARGET}"
 REPO="https://github.com/isiliconx/hardwarekeyemulator"
 
 if [ -d "$SRC/.git" ]; then
